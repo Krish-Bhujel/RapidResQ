@@ -1,7 +1,41 @@
 # id x y
-1 0 0
-2 1 0
-3 2 0
-4 1 1
-5 2 1
-6 0 1
+
+# Center square (size = 2)
+1 4 4
+2 6 4
+3 6 6
+4 4 6
+
+# Outer square (size ≈3)
+5 2.5 2.5
+6 7.5 2.5
+7 7.5 7.5
+8 2.5 7.5
+
+# Top-left square
+9 0 7.5
+11 2.5 10
+
+# Top-right square
+14 10 7.5
+16 7.5 10
+
+# Bottom-left square
+18 2.5 0
+20 0 2.5
+
+# Bottom-right square
+21 7.5 0
+23 10 2.5
+
+#mid-points of bigger square
+25 5 7.5
+26 7.5 5
+27 5 2.5
+28 2.5 5
+
+#mid-points of smaller square
+29 4 5
+30 6 5
+31 5 6
+32 5 4
