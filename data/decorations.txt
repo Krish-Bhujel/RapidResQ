@@ -1,0 +1,15 @@
+# type x y [size]
+#
+# type   -> must match a name you registered via renderer.loadDecorationIcon("type", "path.png", defaultSize) in main.cpp
+# x y    -> same coordinate space as intersections.txt (graph coordinates, not pixels)
+# size   -> OPTIONAL 4th column. Omit it (or use 0) to use that type's default size.
+#           Include a number to override the size for just this one decoration.
+#
+# Examples (uncomment / edit once you've registered the matching types in main.cpp):
+# tree 3 2
+# tree 3.5 2.2
+# house 0.5 4
+# small_house 1.2 4.3
+# building 6 1
+# building 6 1.6 70
+# fountain 5 5 90

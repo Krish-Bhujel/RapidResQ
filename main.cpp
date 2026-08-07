@@ -16,6 +16,7 @@
 #include "ui/map_renderer.hpp"
 #include "ui/console_ui.hpp"
 #include "ui/button.hpp"
+#include "ui/decoration.hpp"
 
 enum class AppState
 {
@@ -39,8 +40,6 @@ static std::string severityName(IncidentSeverity s)
     return "?";
 }
 
-// Returns the shortest distance from point p to the line segment a-b.
-// Used for click hit-testing against roads.
 static float distanceToSegment(sf::Vector2f p, sf::Vector2f a, sf::Vector2f b)
 {
     sf::Vector2f ab = b - a;
@@ -98,19 +97,35 @@ int main()
     }
 
     sf::RenderWindow window(sf::VideoMode({static_cast<unsigned int>(TOTAL_WIDTH),
-                                           static_cast<unsigned int>(MAP_HEIGHT)}),
-                            "RapidResQ - Live Simulation");
+                                            static_cast<unsigned int>(MAP_HEIGHT)}),
+                             "RapidResQ - Live Simulation");
 
     MapTransform transform(city, MAP_WIDTH, MAP_HEIGHT, 140.f);
     MapRenderer renderer;
     renderer.loadFont("../assets/Arial.ttf");
     renderer.loadAmbulanceIcon("../assets/ambulance.png");
     renderer.loadHospitalIcon("../assets/hospital.png");
-    renderer.loadTreeIcon("../assets/tree.png");
-    renderer.loadHouseIcon("../assets/house.png");
     renderer.loadBrokenTreeIcon("../assets/broken_tree.png");
-    renderer.generateDecorations(city, transform);
-    renderer.loadFountainIcon("../assets/fountain.png");
+
+    // ---------------------------------------------------------------
+    // Register every decoration TYPE here: name, .png path, default size.
+    //   >>> SIZE ADJUSTMENT HAPPENS HERE (3rd argument) <
+    // Add one line per decoration type you want to use in decorations.txt.
+    // The name (1st argument) must exactly match the "type" column you use
+    // in data/decorations.txt.
+    // ---------------------------------------------------------------
+    renderer.loadDecorationIcon("tree", "../assets/tree.png", 30.f);
+    renderer.loadDecorationIcon("house", "../assets/house.png", 34.f);
+    renderer.loadDecorationIcon("small_house", "../assets/small_house.png", 24.f);
+    renderer.loadDecorationIcon("building", "../assets/building.png", 60.f);
+    renderer.loadDecorationIcon("fountain", "../assets/fountain.png", 90.f);
+
+    // Load the actual placed decorations (positions) from the data file.
+    std::vector<DecorationEntry> decorations;
+    if (!DecorationLoader::load("../data/decorations.txt", decorations)) {
+        std::cerr << "Warning: could not load decorations.txt (continuing with no decorations)." << std::endl;
+    }
+    renderer.setDecorations(decorations);
 
     sf::Font uiFont;
     bool uiFontLoaded = uiFont.openFromFile("../assets/Arial.ttf");
@@ -144,7 +159,7 @@ int main()
                 if (mousePressed->button == sf::Mouse::Button::Left)
                 {
                     sf::Vector2f clickPos(static_cast<float>(mousePressed->position.x),
-                                          static_cast<float>(mousePressed->position.y));
+                                           static_cast<float>(mousePressed->position.y));
 
                     if (toggleButton.contains(clickPos))
                     {
@@ -180,7 +195,6 @@ int main()
                         }
                     }
 
-                    // --- click-to-block/unblock a road, curve-aware, only inside the map area ---
                     if (clickPos.x < MAP_WIDTH)
                     {
                         float bestDist = std::numeric_limits<float>::max();
@@ -276,12 +290,10 @@ int main()
 
         window.clear(sf::Color(144, 238, 144));
 
-        renderer.drawDecorations(window);
+        renderer.drawDecorations(window, transform);
         renderer.drawMap(window, city, transform);
         renderer.drawHospitals(window, hospitals, city, transform);
 
-        // First pass: compute each ambulance's render state, and group any
-        // non-moving (parked) ambulances by the node they're sitting at.
         std::vector<Simulation::AmbulanceRenderState> ambStates(ambulances.size());
         std::unordered_map<int, std::vector<size_t>> parkedByNode;
 
@@ -295,7 +307,7 @@ int main()
         }
 
         const float PARK_SPACING = 44.f;
-        const float PARK_OFFSET_Y = 55.f; // below the node, opposite side from the hospital
+        const float PARK_OFFSET_Y = 55.f;
 
         for (size_t i = 0; i < ambulances.size(); ++i)
         {
@@ -343,7 +355,6 @@ int main()
             }
         }
 
-        // ---------------- Sidebar ----------------
         sf::RectangleShape sidebarBg({SIDEBAR_WIDTH, MAP_HEIGHT});
         sidebarBg.setPosition({MAP_WIDTH, 0.f});
         sidebarBg.setFillColor(sf::Color(15, 20, 30));

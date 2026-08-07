@@ -23,6 +23,7 @@ add_executable(
     src/ui/console_ui.cpp
     src/ui/map_renderer.cpp
     src/ui/button.cpp
+    src/ui/decorationloader.cpp
 )
 
 target_link_libraries(rapidresq SFML::Graphics SFML::Window SFML::System)

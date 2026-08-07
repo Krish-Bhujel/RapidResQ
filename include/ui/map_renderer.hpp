@@ -1,75 +1,67 @@
 #pragma once
 #include <SFML/Graphics.hpp>
 #include <vector>
+#include <string>
+#include <unordered_map>
 #include "graph/graph.hpp"
 #include "sim/hospital.hpp"
 #include "sim/ambulance.hpp"
+#include "ui/decoration.hpp"
 
-class MapTransform
-{
+class MapTransform {
 public:
-    MapTransform(const Graph &graph, float screenWidth, float screenHeight, float padding);
+    MapTransform(const Graph& graph, float screenWidth, float screenHeight, float padding);
     sf::Vector2f toScreen(double x, double y) const;
 
 private:
     double minX_, minY_, scale_;
     float padding_;
-    float screenHeight_;
     float screenWidth_;
+    float screenHeight_;
 };
 
-class MapRenderer
-{
+class MapRenderer {
 public:
     MapRenderer();
 
-    bool loadFont(const std::string &fontPath);
-    bool loadAmbulanceIcon(const std::string &path);
-    bool loadHospitalIcon(const std::string &path);
-    bool loadTreeIcon(const std::string &path);
-    bool loadHouseIcon(const std::string &path);
-    bool loadBrokenTreeIcon(const std::string &path);
+    bool loadFont(const std::string& fontPath);
+    bool loadAmbulanceIcon(const std::string& path);
+    bool loadHospitalIcon(const std::string& path);
+    bool loadBrokenTreeIcon(const std::string& path);
 
-    void generateDecorations(const Graph &graph, const MapTransform &transform);
+    // Registers a decoration type (e.g. "tree", "house", "building", "small_house", "fountain").
+    // defaultSize is the pixel size used for any decoration of this type that doesn't
+    // specify its own size in decorations.txt. Call this once per type, in main.cpp,
+    // BEFORE calling setDecorations().
+    //   >>> THIS defaultSize PARAMETER IS WHERE YOU ADJUST EACH TYPE'S SIZE <
+    bool loadDecorationIcon(const std::string& type, const std::string& path, float defaultSize);
 
-    void drawDecorations(sf::RenderWindow &window);
-    void drawMap(sf::RenderWindow &window, const Graph &graph, const MapTransform &transform);
-    void drawHospitals(sf::RenderWindow &window, const std::vector<Hospital> &hospitals,
-                       const Graph &graph, const MapTransform &transform);
+    // Replaces the full list of manually-placed decorations (output of DecorationLoader::load).
+    void setDecorations(const std::vector<DecorationEntry>& decorations);
 
-    // rotationDegrees: direction the ambulance should visually face.
-    // 0 degrees = default icon orientation (assumed facing "east"/right).
-    void drawAmbulanceAt(sf::RenderWindow &window, sf::Vector2f screenPos, int ambulanceId,
-                         float rotationDegrees);
+    void drawDecorations(sf::RenderWindow& window, const MapTransform& transform);
+    void drawMap(sf::RenderWindow& window, const Graph& graph, const MapTransform& transform);
+    void drawHospitals(sf::RenderWindow& window, const std::vector<Hospital>& hospitals,
+                        const Graph& graph, const MapTransform& transform);
 
-    sf::Vector2f interpolateAlongPath(const std::vector<int> &pathNodes, float progress,
-                                      const Graph &graph, const MapTransform &transform);
+    void drawAmbulanceAt(sf::RenderWindow& window, sf::Vector2f screenPos, int ambulanceId,
+                          float rotationDegrees);
 
-    // Returns the heading (in degrees, atan2 convention) of the road segment
-    // the ambulance is currently traveling along, for use with drawAmbulanceAt.
-    float getHeadingAlongPath(const std::vector<int> &pathNodes, float progress,
-                              const Graph &graph, const MapTransform &transform);
+    sf::Vector2f interpolateAlongPath(const std::vector<int>& pathNodes, float progress,
+                                        const Graph& graph, const MapTransform& transform);
 
-    sf::Texture fountainTexture_;
-    bool fountainTextureLoaded_ = false;
-
-    bool loadFountainIcon(const std::string &path);
+    float getHeadingAlongPath(const std::vector<int>& pathNodes, float progress,
+                               const Graph& graph, const MapTransform& transform);
 
     static constexpr float ROAD_WIDTH = 26.f;
     static constexpr float AMBULANCE_SIZE = 48.f;
     static constexpr float HOSPITAL_SIZE = 56.f;
     static constexpr float NODE_RADIUS = 6.f;
-    static constexpr float TREE_SIZE = 30.f;
-    static constexpr float HOUSE_SIZE = 34.f;
     static constexpr float BROKEN_TREE_SIZE = 48.f;
+    // Fallback size ONLY used if a decoration's type was never registered via loadDecorationIcon.
+    static constexpr float DEFAULT_DECORATION_SIZE = 32.f;
 
 private:
-    struct Decoration
-    {
-        sf::Vector2f pos;
-        bool isTree;
-    };
-
     sf::Font font_;
     bool fontLoaded_ = false;
 
@@ -77,16 +69,16 @@ private:
     bool ambulanceTextureLoaded_ = false;
     sf::Texture hospitalTexture_;
     bool hospitalTextureLoaded_ = false;
-    sf::Texture treeTexture_;
-    bool treeTextureLoaded_ = false;
-    sf::Texture houseTexture_;
-    bool houseTextureLoaded_ = false;
     sf::Texture brokenTreeTexture_;
     bool brokenTreeTextureLoaded_ = false;
 
-    std::vector<Decoration> decorations_;
+    // type name -> loaded texture, and type name -> its registered default size
+    std::unordered_map<std::string, sf::Texture> decorationTextures_;
+    std::unordered_map<std::string, float> decorationDefaultSizes_;
 
-    void drawIconOrFallback(sf::RenderWindow &window, sf::Vector2f pos, float targetSize,
-                            sf::Texture &texture, bool loaded, sf::Color fallbackColor,
-                            bool fallbackIsCircle, float rotationDegrees = 0.f);
+    std::vector<DecorationEntry> decorations_;
+
+    void drawIconOrFallback(sf::RenderWindow& window, sf::Vector2f pos, float targetSize,
+                             sf::Texture& texture, bool loaded, sf::Color fallbackColor,
+                             bool fallbackIsCircle, float rotationDegrees = 0.f);
 };
