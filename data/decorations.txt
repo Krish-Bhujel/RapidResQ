@@ -6,10 +6,10 @@
 #           Include a number to override the size for just this one decoration.
 #
 # Examples (uncomment / edit once you've registered the matching types in main.cpp):
-# tree 3 2
-# tree 3.5 2.2
-# house 0.5 4
-# small_house 1.2 4.3
-# building 6 1
-# building 6 1.6 70
-# fountain 5 5 90
+ tree 3 2
+ tree 3.5 2.2
+ house 0.5 4
+ small_house 1.2 4.3
+ building 6 1
+ building 6 1.6 70
+ fountain 5 5 90
