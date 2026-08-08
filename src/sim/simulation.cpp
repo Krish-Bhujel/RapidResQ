@@ -116,30 +116,59 @@ void Simulation::tick() {
         log(oss.str());
     }
 
-    // 2. Reroute check: for every travel, if any edge BEYOND the currently-committed
-    //    edge is blocked, recompute the remainder of the route.
+    // 2. Reroute check.
     for (auto& t : activeTravels_) {
         if (t.phase == TravelPhase::OnScene) continue;
-        if (t.remainingRoute.size() < 3) continue; // no future edges to check yet
+        if (t.remainingRoute.size() < 2) continue;
 
-        bool blockedAhead = false;
-        for (size_t i = 1; i + 1 < t.remainingRoute.size(); ++i) {
-            if (graph_.isEdgeBlocked(t.remainingRoute[i], t.remainingRoute[i + 1])) {
-                blockedAhead = true;
-                break;
+        int curFrom = t.remainingRoute[0];
+        int curTo = t.remainingRoute[1];
+
+        // Case A: the edge it is CURRENTLY DRIVING ON just became blocked.
+        // Turn back immediately, mirroring how far along it already was.
+        if (graph_.isEdgeBlocked(curFrom, curTo)) {
+            int ticksUsed = t.totalTicksOnEdge - t.ticksRemainingOnEdge;
+            if (ticksUsed < 1) ticksUsed = 1; // avoid an instant, teleport-like snap-back
+
+            Path cont = pathfinder_.findPath(graph_, curFrom, t.destinationNodeId);
+            std::vector<int> newRoute = {curTo, curFrom}; // drive back the way it came
+            if (cont.totalCost >= 0) {
+                for (size_t k = 1; k < cont.nodes.size(); ++k) newRoute.push_back(cont.nodes[k]);
             }
+
+            t.remainingRoute = newRoute;
+            // Same physical edge, so it takes just as long to retrace it as it took to get here.
+            t.ticksRemainingOnEdge = ticksUsed;
+            // totalTicksOnEdge stays as-is (same edge length) so progress interpolation stays smooth.
+
+            std::ostringstream oss;
+            oss << "Ambulance " << t.ambulanceId << " hit a road block mid-route and is turning back.";
+            log(oss.str());
+            continue; // don't also run the "ahead" check this tick
         }
 
-        if (blockedAhead) {
-            int fromNode = t.remainingRoute[1]; // the node it's about to arrive at
-            bool ok = rerouteFrom(t, fromNode, true);
-            std::ostringstream oss;
-            if (ok) {
-                oss << "Ambulance " << t.ambulanceId << " detected a blocked road ahead and is rerouting.";
-            } else {
-                oss << "Ambulance " << t.ambulanceId << " found no alternate route yet; will keep retrying.";
+        // Case B: an edge FURTHER DOWN the route (not yet entered) is blocked.
+        // Reroute once it reaches the node just before that edge.
+        if (t.remainingRoute.size() >= 3) {
+            bool blockedAhead = false;
+            for (size_t i = 1; i + 1 < t.remainingRoute.size(); ++i) {
+                if (graph_.isEdgeBlocked(t.remainingRoute[i], t.remainingRoute[i + 1])) {
+                    blockedAhead = true;
+                    break;
+                }
             }
-            log(oss.str());
+
+            if (blockedAhead) {
+                int fromNode = t.remainingRoute[1];
+                bool ok = rerouteFrom(t, fromNode, true);
+                std::ostringstream oss;
+                if (ok) {
+                    oss << "Ambulance " << t.ambulanceId << " detected a blocked road ahead and is rerouting.";
+                } else {
+                    oss << "Ambulance " << t.ambulanceId << " found no alternate route yet; will keep retrying.";
+                }
+                log(oss.str());
+            }
         }
     }
 

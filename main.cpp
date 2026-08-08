@@ -104,8 +104,8 @@ int main()
     }
 
     sf::RenderWindow window(sf::VideoMode({static_cast<unsigned int>(TOTAL_WIDTH),
-                                            static_cast<unsigned int>(MAP_HEIGHT)}),
-                             "RapidResQ - Live Simulation");
+                                           static_cast<unsigned int>(MAP_HEIGHT)}),
+                            "RapidResQ - Live Simulation");
 
     MapTransform transform(city, MAP_WIDTH, MAP_HEIGHT, 140.f);
     MapRenderer renderer;
@@ -121,7 +121,8 @@ int main()
     renderer.loadDecorationIcon("fountain", "../assets/fountain.png", 90.f);
 
     std::vector<DecorationEntry> decorations;
-    if (!DecorationLoader::load("../data/decorations.txt", decorations)) {
+    if (!DecorationLoader::load("../data/decorations.txt", decorations))
+    {
         std::cerr << "Warning: could not load decorations.txt." << std::endl;
     }
     renderer.setDecorations(decorations);
@@ -139,7 +140,8 @@ int main()
         sf::Color(255, 220, 80, 140),
     };
     std::unordered_map<int, sf::Color> colorByAmbulanceId;
-    for (size_t i = 0; i < ambulances.size(); ++i) {
+    for (size_t i = 0; i < ambulances.size(); ++i)
+    {
         colorByAmbulanceId[ambulances[i].id] = ambulanceColors[i % ambulanceColors.size()];
     }
 
@@ -173,7 +175,7 @@ int main()
                 if (mousePressed->button == sf::Mouse::Button::Left)
                 {
                     sf::Vector2f clickPos(static_cast<float>(mousePressed->position.x),
-                                           static_cast<float>(mousePressed->position.y));
+                                          static_cast<float>(mousePressed->position.y));
 
                     if (toggleButton.contains(clickPos))
                     {
@@ -196,7 +198,8 @@ int main()
                         lastPrintedEvent = 0;
                         tickClock.restart();
                         colorByAmbulanceId.clear();
-                        for (size_t i = 0; i < ambulances.size(); ++i) {
+                        for (size_t i = 0; i < ambulances.size(); ++i)
+                        {
                             colorByAmbulanceId[ambulances[i].id] = ambulanceColors[i % ambulanceColors.size()];
                         }
                         std::cout << "--- Simulation reset ---" << std::endl;
@@ -205,6 +208,11 @@ int main()
                     if (chaosButton.contains(clickPos))
                     {
                         sim.triggerChaosEvent();
+                        if (appState != AppState::Running)
+                        {
+                            appState = AppState::Running;
+                            tickClock.restart();
+                        }
                     }
 
                     // --- click inside map area: node click creates an incident, road click blocks/unblocks ---
@@ -333,10 +341,11 @@ int main()
 
         for (size_t i = 0; i < ambulances.size(); ++i)
         {
-            if (!ambStates[i].isMoving) continue;
+            if (!ambStates[i].isMoving)
+                continue;
             sf::Color col = colorByAmbulanceId.count(ambulances[i].id)
-                ? colorByAmbulanceId[ambulances[i].id]
-                : sf::Color(100, 200, 100, 140);
+                                ? colorByAmbulanceId[ambulances[i].id]
+                                : sf::Color(100, 200, 100, 140);
             renderer.drawAmbulanceRoute(window, ambStates[i].fullRemainingRoute, city, transform, col);
         }
 
@@ -344,7 +353,8 @@ int main()
         float pulsePhase = std::fmod(pulseClock.getElapsedTime().asSeconds(), 1.5f) / 1.5f;
         for (const auto &inc : sim.getActiveIncidents())
         {
-            if (!city.hasNode(inc.nodeId)) continue;
+            if (!city.hasNode(inc.nodeId))
+                continue;
             NodePos p = city.getPosition(inc.nodeId);
             sf::Vector2f pos = transform.toScreen(p.x, p.y);
             renderer.drawIncidentBeacon(window, pos, pulsePhase);
