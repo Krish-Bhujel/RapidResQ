@@ -1,6 +1,3 @@
 # INCIDENT tick nodeId severity(0=Low,1=Medium,2=High)
 # BLOCK tick fromNode toNode
-INCIDENT 0 3 2
-INCIDENT 2 5 1
-INCIDENT 4 1 2
-INCIDENT 4 6 1
+INCIDENT 0 11 2

@@ -3,6 +3,8 @@
 #include <sstream>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <limits>
 
 Simulation::Simulation(Graph& graph, IPathfinder& pathfinder,
                         std::vector<Ambulance>& ambulances, std::vector<Hospital>& hospitals)
@@ -49,8 +51,31 @@ void Simulation::triggerManualIncident(int nodeId, IncidentSeverity severity) {
     waitingIncidents_.push_back(inc);
 
     std::ostringstream oss;
-    oss << "Manual incident triggered at node " << nodeId;
+    oss << "Incident triggered at node " << nodeId;
     log(oss.str());
+}
+
+void Simulation::triggerChaosEvent() {
+    log("=== CHAOS EVENT TRIGGERED ===");
+
+    auto unblocked = graph_.getUnblockedEdges();
+    if (!unblocked.empty()) {
+        auto& e = unblocked[std::rand() % unblocked.size()];
+        graph_.blockEdge(e.first, e.second);
+        std::ostringstream oss;
+        oss << "CHAOS: road blocked between node " << e.first << " and node " << e.second;
+        log(oss.str());
+    }
+
+    std::vector<int> ids = graph_.getAllNodeIds();
+    if (!ids.empty()) {
+        int count = 1 + (std::rand() % 3); // 1-3 incidents
+        for (int i = 0; i < count; ++i) {
+            int node = ids[std::rand() % ids.size()];
+            IncidentSeverity sev = static_cast<IncidentSeverity>(std::rand() % 3);
+            triggerManualIncident(node, sev);
+        }
+    }
 }
 
 std::vector<Incident> Simulation::getActiveIncidents() const {
@@ -63,6 +88,22 @@ std::vector<Incident> Simulation::getActiveIncidents() const {
     return result;
 }
 
+bool Simulation::rerouteFrom(ActiveTravel& t, int fromNode, bool keepCurrentEdge) {
+    Path alt = pathfinder_.findPath(graph_, fromNode, t.destinationNodeId);
+    if (alt.totalCost < 0 || alt.nodes.empty()) return false;
+
+    std::vector<int> newRoute;
+    if (keepCurrentEdge && t.remainingRoute.size() >= 2) {
+        newRoute.push_back(t.remainingRoute[0]);
+        newRoute.push_back(t.remainingRoute[1]);
+        for (size_t k = 1; k < alt.nodes.size(); ++k) newRoute.push_back(alt.nodes[k]);
+    } else {
+        newRoute = alt.nodes;
+    }
+    t.remainingRoute = newRoute;
+    return true;
+}
+
 void Simulation::tick() {
     // 1. Process any road blocks scheduled for this tick
     while (nextBlockIndex_ < scenarioBlocks_.size() &&
@@ -71,12 +112,38 @@ void Simulation::tick() {
         nextBlockIndex_++;
         graph_.blockEdge(b.fromNode, b.toNode);
         std::ostringstream oss;
-        oss << "Road blocked between node " << b.fromNode << " and node " << b.toNode
-            << ". Active ambulances will reroute at next dispatch.";
+        oss << "Road blocked between node " << b.fromNode << " and node " << b.toNode << ".";
         log(oss.str());
     }
 
-    // 2. Trigger any scenario incidents due this tick
+    // 2. Reroute check: for every travel, if any edge BEYOND the currently-committed
+    //    edge is blocked, recompute the remainder of the route.
+    for (auto& t : activeTravels_) {
+        if (t.phase == TravelPhase::OnScene) continue;
+        if (t.remainingRoute.size() < 3) continue; // no future edges to check yet
+
+        bool blockedAhead = false;
+        for (size_t i = 1; i + 1 < t.remainingRoute.size(); ++i) {
+            if (graph_.isEdgeBlocked(t.remainingRoute[i], t.remainingRoute[i + 1])) {
+                blockedAhead = true;
+                break;
+            }
+        }
+
+        if (blockedAhead) {
+            int fromNode = t.remainingRoute[1]; // the node it's about to arrive at
+            bool ok = rerouteFrom(t, fromNode, true);
+            std::ostringstream oss;
+            if (ok) {
+                oss << "Ambulance " << t.ambulanceId << " detected a blocked road ahead and is rerouting.";
+            } else {
+                oss << "Ambulance " << t.ambulanceId << " found no alternate route yet; will keep retrying.";
+            }
+            log(oss.str());
+        }
+    }
+
+    // 3. Trigger any scenario incidents due this tick
     while (nextScenarioIndex_ < scenarioIncidents_.size() &&
            scenarioIncidents_[nextScenarioIndex_].triggerTick == currentTick_) {
         Incident inc = scenarioIncidents_[nextScenarioIndex_];
@@ -88,103 +155,197 @@ void Simulation::tick() {
         waitingIncidents_.push_back(inc);
     }
 
-    // 3. Try to dispatch every waiting incident
+    // 4. Try to dispatch every waiting incident: first idle ambulances, then
+    //    fall back to redirecting the closest currently-returning ambulance.
     for (auto it = waitingIncidents_.begin(); it != waitingIncidents_.end(); ) {
         DispatchResult result = dispatcher_.assign(*it);
+
         if (result.success) {
-            incidentsById_[it->id] = *it; // now Assigned, with assignedAmbulanceId set
+            incidentsById_[it->id] = *it;
 
             std::ostringstream oss;
-            oss << "Ambulance " << result.ambulanceId << " assigned. Route cost: "
-                << result.route.totalCost;
+            oss << "Ambulance " << result.ambulanceId << " assigned. Route cost: " << result.route.totalCost;
             log(oss.str());
 
-            int ticks = std::max(1, static_cast<int>(std::round(result.route.totalCost)));
-            activeTravels_.push_back({
-                result.ambulanceId, it->id, it->nodeId,
-                ticks, ticks, TravelPhase::ToIncident, result.route
-            });
+            ActiveTravel t;
+            t.ambulanceId = result.ambulanceId;
+            t.incidentId = it->id;
+            t.incidentNodeId = it->nodeId;
+            t.destinationNodeId = it->nodeId;
+            t.phase = TravelPhase::ToIncident;
+            t.remainingRoute = result.route.nodes;
+            if (t.remainingRoute.size() < 2) {
+                t.remainingRoute = {it->nodeId, it->nodeId};
+            }
+            double w = graph_.getEdgeWeight(t.remainingRoute[0], t.remainingRoute[1]);
+            if (w < 0) w = 1.0;
+            t.totalTicksOnEdge = std::max(1, static_cast<int>(std::round(w)));
+            t.ticksRemainingOnEdge = t.totalTicksOnEdge;
+
+            activeTravels_.push_back(t);
+            it = waitingIncidents_.erase(it);
+            continue;
+        }
+
+        // No idle ambulance available — try redirecting the closest returning one.
+        ActiveTravel* best = nullptr;
+        double bestCost = std::numeric_limits<double>::max();
+        Path bestPath;
+
+        for (auto& t : activeTravels_) {
+            if (t.phase != TravelPhase::ReturningToHospital) continue;
+            if (t.remainingRoute.empty()) continue;
+
+            int fromNode = t.remainingRoute[0];
+            Path p = pathfinder_.findPath(graph_, fromNode, it->nodeId);
+            if (p.totalCost >= 0 && p.totalCost < bestCost) {
+                bestCost = p.totalCost;
+                best = &t;
+                bestPath = p;
+            }
+        }
+
+        if (best) {
+            Ambulance* amb = findAmbulance(best->ambulanceId);
+
+            std::vector<int> newRoute;
+            if (best->remainingRoute.size() >= 2) {
+                newRoute.push_back(best->remainingRoute[0]);
+                newRoute.push_back(best->remainingRoute[1]);
+                for (size_t k = 1; k < bestPath.nodes.size(); ++k) newRoute.push_back(bestPath.nodes[k]);
+            } else {
+                newRoute = bestPath.nodes.empty() ? std::vector<int>{it->nodeId, it->nodeId} : bestPath.nodes;
+            }
+
+            best->remainingRoute = newRoute;
+            best->phase = TravelPhase::ToIncident;
+            best->incidentId = it->id;
+            best->incidentNodeId = it->nodeId;
+            best->destinationNodeId = it->nodeId;
+
+            if (amb) amb->status = AmbulanceStatus::EnRouteToIncident;
+
+            Incident updated = *it;
+            updated.status = IncidentStatus::Assigned;
+            updated.assignedAmbulanceId = best->ambulanceId;
+            incidentsById_[it->id] = updated;
+
+            std::ostringstream oss;
+            oss << "Ambulance " << best->ambulanceId << " redirected mid-return to handle new incident at node "
+                << it->nodeId << ".";
+            log(oss.str());
 
             it = waitingIncidents_.erase(it);
-        } else {
-            std::ostringstream oss;
-            oss << "No ambulance available yet for incident at node " << it->nodeId;
-            log(oss.str());
-            ++it;
+            continue;
         }
+
+        std::ostringstream oss;
+        oss << "No ambulance available yet for incident at node " << it->nodeId;
+        log(oss.str());
+        ++it;
     }
 
-    // 4. Progress every active ambulance travel
+    // 5. Progress every active travel
     for (auto it = activeTravels_.begin(); it != activeTravels_.end(); ) {
-        it->ticksRemaining--;
+        if (it->phase == TravelPhase::OnScene) {
+            it->ticksRemainingOnEdge--;
+            if (it->ticksRemainingOnEdge <= 0) {
+                Ambulance* amb = findAmbulance(it->ambulanceId);
+                std::ostringstream oss;
+                oss << "Incident " << it->incidentId << " resolved. Ambulance "
+                    << it->ambulanceId << " returning to hospital.";
+                log(oss.str());
 
-        if (it->ticksRemaining > 0) {
+                auto incIt = incidentsById_.find(it->incidentId);
+                if (incIt != incidentsById_.end()) incIt->second.status = IncidentStatus::Resolved;
+
+                if (amb) {
+                    amb->status = AmbulanceStatus::ReturningToHospital;
+                    Hospital* home = findHospital(amb->homeHospitalId);
+                    int homeNode = home ? home->nodeId : amb->currentNodeId;
+                    it->destinationNodeId = homeNode;
+
+                    if (!rerouteFrom(*it, it->incidentNodeId, false)) {
+                        it->remainingRoute = {it->incidentNodeId};
+                    }
+                    if (it->remainingRoute.size() < 2) {
+                        it->remainingRoute = {it->incidentNodeId, it->incidentNodeId};
+                    }
+                    double w = graph_.getEdgeWeight(it->remainingRoute[0], it->remainingRoute[1]);
+                    if (w < 0) w = 1.0;
+                    it->totalTicksOnEdge = std::max(1, static_cast<int>(std::round(w)));
+                    it->ticksRemainingOnEdge = it->totalTicksOnEdge;
+                }
+                it->phase = TravelPhase::ReturningToHospital;
+            }
             ++it;
             continue;
         }
 
-        Ambulance* amb = findAmbulance(it->ambulanceId);
+        // Moving phase (ToIncident or ReturningToHospital)
+        if (it->remainingRoute.size() < 2) {
+            it->ticksRemainingOnEdge = 0;
+        } else {
+            it->ticksRemainingOnEdge--;
+        }
 
-        if (it->phase == TravelPhase::ToIncident) {
-            std::ostringstream oss;
-            oss << "Ambulance " << it->ambulanceId << " arrived on scene.";
-            log(oss.str());
-
-            if (amb) {
-                amb->status = AmbulanceStatus::OnScene;
-                amb->currentNodeId = it->incidentNodeId;
-            }
-
-            it->phase = TravelPhase::OnScene;
-            it->ticksRemaining = ON_SCENE_DURATION;
-            it->totalTicksForPhase = ON_SCENE_DURATION;
-            it->currentRoute.nodes = {it->incidentNodeId};
-            it->currentRoute.totalCost = 0;
+        if (it->ticksRemainingOnEdge > 0) {
             ++it;
+            continue;
+        }
 
-        } else if (it->phase == TravelPhase::OnScene) {
-            std::ostringstream oss;
-            oss << "Incident " << it->incidentId << " resolved. Ambulance "
-                << it->ambulanceId << " returning to hospital.";
-            log(oss.str());
+        if (it->remainingRoute.size() >= 2) {
+            it->remainingRoute.erase(it->remainingRoute.begin());
+        }
 
-            auto incIt = incidentsById_.find(it->incidentId);
-            if (incIt != incidentsById_.end()) {
-                incIt->second.status = IncidentStatus::Resolved;
-            }
+        if (it->remainingRoute.size() <= 1) {
+            // Arrived at final destination of this phase
+            if (it->phase == TravelPhase::ToIncident) {
+                Ambulance* amb = findAmbulance(it->ambulanceId);
+                std::ostringstream oss;
+                oss << "Ambulance " << it->ambulanceId << " arrived on scene.";
+                log(oss.str());
 
-            if (amb) {
-                amb->status = AmbulanceStatus::ReturningToHospital;
-                Hospital* home = findHospital(amb->homeHospitalId);
-                int returnTicks = 1;
-                Path back;
-                if (home) {
-                    back = pathfinder_.findPath(graph_, amb->currentNodeId, home->nodeId);
-                    if (back.totalCost >= 0) {
-                        returnTicks = std::max(1, static_cast<int>(std::round(back.totalCost)));
-                    }
+                if (amb) {
+                    amb->status = AmbulanceStatus::OnScene;
+                    amb->currentNodeId = it->incidentNodeId;
                 }
-                it->currentRoute = back;
-                it->ticksRemaining = returnTicks;
-                it->totalTicksForPhase = returnTicks;
-            } else {
-                it->ticksRemaining = 1;
-                it->totalTicksForPhase = 1;
-            }
-            it->phase = TravelPhase::ReturningToHospital;
-            ++it;
 
-        } else { // ReturningToHospital finished
-            if (amb) {
-                amb->status = AmbulanceStatus::Idle;
-                Hospital* home = findHospital(amb->homeHospitalId);
-                if (home) amb->currentNodeId = home->nodeId;
+                it->phase = TravelPhase::OnScene;
+                it->remainingRoute = {it->incidentNodeId};
+                it->ticksRemainingOnEdge = ON_SCENE_DURATION;
+                it->totalTicksOnEdge = ON_SCENE_DURATION;
+                ++it;
+            } else {
+                Ambulance* amb = findAmbulance(it->ambulanceId);
+                if (amb) {
+                    amb->status = AmbulanceStatus::Idle;
+                    amb->currentNodeId = it->destinationNodeId;
+                }
                 std::ostringstream oss;
                 oss << "Ambulance " << it->ambulanceId << " back at hospital and idle.";
                 log(oss.str());
+                it = activeTravels_.erase(it);
             }
-            it = activeTravels_.erase(it);
+            continue;
         }
+
+        // Start the next edge
+        if (graph_.isEdgeBlocked(it->remainingRoute[0], it->remainingRoute[1])) {
+            if (!rerouteFrom(*it, it->remainingRoute[0], false)) {
+                // stuck — retry next tick
+                it->ticksRemainingOnEdge = 1;
+                it->totalTicksOnEdge = 1;
+                ++it;
+                continue;
+            }
+        }
+
+        double w = graph_.getEdgeWeight(it->remainingRoute[0], it->remainingRoute[1]);
+        if (w < 0) w = 1.0;
+        it->totalTicksOnEdge = std::max(1, static_cast<int>(std::round(w)));
+        it->ticksRemainingOnEdge = it->totalTicksOnEdge;
+        ++it;
     }
 
     currentTick_++;
@@ -205,17 +366,32 @@ Simulation::AmbulanceRenderState Simulation::getAmbulanceRenderState(int ambulan
     AmbulanceRenderState state;
     for (const auto& t : activeTravels_) {
         if (t.ambulanceId != ambulanceId) continue;
+        if (t.phase == TravelPhase::OnScene) return state; // isMoving stays false
 
         state.isMoving = true;
-        state.routeNodes = t.currentRoute.nodes;
-        state.ticksRemaining = t.ticksRemaining;
         state.headingToIncident = (t.phase == TravelPhase::ToIncident);
+        state.fullRemainingRoute = t.remainingRoute;
 
-        float doneTicks = static_cast<float>(t.totalTicksForPhase - t.ticksRemaining);
+        if (t.remainingRoute.size() >= 2) {
+            state.currentEdgeNodes = {t.remainingRoute[0], t.remainingRoute[1]};
+        } else {
+            state.currentEdgeNodes = {t.remainingRoute[0], t.remainingRoute[0]};
+        }
+
+        float doneTicks = static_cast<float>(t.totalTicksOnEdge - t.ticksRemainingOnEdge);
         float continuous = doneTicks + subTickFraction;
-        state.progress = (t.totalTicksForPhase > 0)
-            ? std::min(1.f, continuous / static_cast<float>(t.totalTicksForPhase))
+        state.progress = (t.totalTicksOnEdge > 0)
+            ? std::min(1.f, continuous / static_cast<float>(t.totalTicksOnEdge))
             : 1.f;
+
+        int totalTicks = t.ticksRemainingOnEdge;
+        for (size_t i = 1; i + 1 < t.remainingRoute.size(); ++i) {
+            double w = graph_.getEdgeWeight(t.remainingRoute[i], t.remainingRoute[i + 1]);
+            if (w < 0) w = 1.0;
+            totalTicks += std::max(1, static_cast<int>(std::round(w)));
+        }
+        state.ticksRemainingTotal = totalTicks;
+
         return state;
     }
     return state;

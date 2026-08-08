@@ -107,3 +107,33 @@ std::vector<std::pair<int, int>> Graph::getBlockedEdges() const {
     }
     return result;
 }
+
+bool Graph::isEdgeBlocked(int from, int to) const {
+    auto it = adjacency_.find(from);
+    if (it == adjacency_.end()) return false;
+    for (const auto& e : it->second) {
+        if (e.to == to) return e.blocked;
+    }
+    return false;
+}
+
+double Graph::getEdgeWeight(int from, int to) const {
+    auto it = adjacency_.find(from);
+    if (it == adjacency_.end()) return -1.0;
+    for (const auto& e : it->second) {
+        if (e.to == to) return e.weight;
+    }
+    return -1.0;
+}
+
+std::vector<std::pair<int, int>> Graph::getUnblockedEdges() const {
+    std::vector<std::pair<int, int>> result;
+    for (const auto& [nodeId, edges] : adjacency_) {
+        for (const auto& e : edges) {
+            if (!e.blocked && nodeId < e.to) {
+                result.push_back({nodeId, e.to});
+            }
+        }
+    }
+    return result;
+}

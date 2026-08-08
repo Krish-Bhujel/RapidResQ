@@ -4,17 +4,20 @@
 #include <stdexcept>
 #include <utility>
 
-struct Edge {
+struct Edge
+{
     int to;
     double weight;
 };
 
-struct NodePos {
+struct NodePos
+{
     double x;
     double y;
 };
 
-class Graph {
+class Graph
+{
 public:
     void addNode(int id, double x, double y);
     void addEdge(int from, int to, double weight);
@@ -25,7 +28,12 @@ public:
     NodePos getPosition(int id) const;
     bool hasNode(int id) const;
 
-    struct RenderEdge {
+    bool isEdgeBlocked(int from, int to) const;
+    double getEdgeWeight(int from, int to) const;               // -1 if edge doesn't exist
+    std::vector<std::pair<int, int>> getUnblockedEdges() const; // each listed once, from < to
+
+    struct RenderEdge
+    {
         int from;
         int to;
         double weight;
@@ -43,7 +51,8 @@ public:
     std::vector<std::pair<int, int>> getBlockedEdges() const;
 
 private:
-    struct StoredEdge {
+    struct StoredEdge
+    {
         int to;
         double weight;
         bool blocked = false;

@@ -284,3 +284,43 @@ float MapRenderer::getHeadingAlongPath(const std::vector<int>& pathNodes, float 
     sf::Vector2f dir = b - a;
     return std::atan2(dir.y, dir.x) * 180.f / 3.14159265f;
 }
+
+void MapRenderer::drawAmbulanceRoute(sf::RenderWindow& window, const std::vector<int>& routeNodes,
+                                      const Graph& graph, const MapTransform& transform, sf::Color color) {
+    if (routeNodes.size() < 2) return;
+    for (size_t i = 0; i + 1 < routeNodes.size(); ++i) {
+        NodePos p1 = graph.getPosition(routeNodes[i]);
+        NodePos p2 = graph.getPosition(routeNodes[i + 1]);
+        sf::Vector2f a = transform.toScreen(p1.x, p1.y);
+        sf::Vector2f b = transform.toScreen(p2.x, p2.y);
+
+        sf::Vector2f dir = b - a;
+        float length = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+        float angleDeg = std::atan2(dir.y, dir.x) * 180.f / 3.14159265f;
+
+        float overlayWidth = ROAD_WIDTH * 0.55f;
+        sf::RectangleShape overlay({length, overlayWidth});
+        overlay.setOrigin({0.f, overlayWidth / 2.f});
+        overlay.setPosition(a);
+        overlay.setRotation(sf::degrees(angleDeg));
+        overlay.setFillColor(color);
+        window.draw(overlay);
+    }
+}
+
+void MapRenderer::drawIncidentBeacon(sf::RenderWindow& window, sf::Vector2f pos, float pulsePhase01) {
+    float pulse = 0.5f + 0.5f * std::sin(pulsePhase01 * 3.14159265f * 2.f);
+    float ringRadius = 14.f + pulse * 12.f;
+
+    sf::CircleShape ring(ringRadius);
+    ring.setOrigin({ringRadius, ringRadius});
+    ring.setPosition(pos);
+    ring.setFillColor(sf::Color(220, 40, 40, static_cast<std::uint8_t>(100.f * (1.f - pulse))));
+    window.draw(ring);
+
+    sf::CircleShape dot(7.f);
+    dot.setOrigin({7.f, 7.f});
+    dot.setPosition(pos);
+    dot.setFillColor(sf::Color(255, 50, 50));
+    window.draw(dot);
+}

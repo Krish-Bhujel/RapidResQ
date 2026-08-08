@@ -17,32 +17,23 @@ public:
                std::vector<Ambulance>& ambulances, std::vector<Hospital>& hospitals);
 
     bool loadScenario(const std::string& path);
-
     void tick();
-
     bool isFinished() const;
-
     const std::vector<Event>& getEventLog() const;
-
     int currentTick() const { return currentTick_; }
 
-    // Clears all simulation progress (ticks, events, active travels, incidents)
-    // back to a fresh start. Does NOT touch Graph/Ambulances/Hospitals —
-    // caller is responsible for reloading those separately if a full reset
-    // of blocked roads / ambulance positions is also wanted.
     void reset();
-
-    // Immediately queues a new incident, independent of the loaded scenario.
     void triggerManualIncident(int nodeId, IncidentSeverity severity);
+    void triggerChaosEvent(); // blocks a random unblocked road + spawns 1-3 random incidents
 
-    // All incidents that have been triggered but not yet resolved.
     std::vector<Incident> getActiveIncidents() const;
 
     struct AmbulanceRenderState {
         bool isMoving = false;
-        std::vector<int> routeNodes;
-        float progress = 0.f;
-        int ticksRemaining = 0;
+        std::vector<int> currentEdgeNodes;   // exactly 2 nodes: the edge currently being driven
+        float progress = 0.f;                // 0..1 progress along currentEdgeNodes
+        std::vector<int> fullRemainingRoute; // current node -> destination, for drawing the path overlay
+        int ticksRemainingTotal = 0;         // ETA to final destination of this phase
         bool headingToIncident = false;
     };
 
@@ -55,15 +46,20 @@ private:
         int ambulanceId;
         int incidentId;
         int incidentNodeId;
-        int ticksRemaining;
-        int totalTicksForPhase;
+        int destinationNodeId;
         TravelPhase phase;
-        Path currentRoute;
+        std::vector<int> remainingRoute; // [0] = current/last-reached node ... [back] = destinationNodeId
+        int ticksRemainingOnEdge = 0;
+        int totalTicksOnEdge = 0;
     };
 
     void log(const std::string& message);
     Hospital* findHospital(int id);
     Ambulance* findAmbulance(int id);
+
+    // Recomputes a route for `t` from `fromNode` to `t.destinationNodeId`,
+    // keeping remainingRoute[0..1] untouched if keepCurrentEdge is true.
+    bool rerouteFrom(ActiveTravel& t, int fromNode, bool keepCurrentEdge);
 
     Graph& graph_;
     IPathfinder& pathfinder_;
@@ -80,7 +76,7 @@ private:
     size_t nextBlockIndex_ = 0;
 
     std::unordered_map<int, Incident> incidentsById_;
-    int nextManualIncidentId_ = 100000; // kept well above scenario ids to avoid collisions
+    int nextManualIncidentId_ = 100000;
 
     int currentTick_ = 0;
     size_t nextScenarioIndex_ = 0;

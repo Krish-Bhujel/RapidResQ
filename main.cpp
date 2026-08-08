@@ -55,6 +55,12 @@ static float distanceToSegment(sf::Vector2f p, sf::Vector2f a, sf::Vector2f b)
     return std::sqrt(diff.x * diff.x + diff.y * diff.y);
 }
 
+static float distanceToPoint(sf::Vector2f a, sf::Vector2f b)
+{
+    sf::Vector2f d = a - b;
+    return std::sqrt(d.x * d.x + d.y * d.y);
+}
+
 int main()
 {
     std::srand(static_cast<unsigned int>(std::time(nullptr)));
@@ -63,6 +69,7 @@ int main()
     const float MAP_HEIGHT = 1050.f;
     const float SIDEBAR_WIDTH = 340.f;
     const float TOTAL_WIDTH = MAP_WIDTH + SIDEBAR_WIDTH;
+    const float NODE_CLICK_RADIUS = 16.f;
 
     Graph city;
     std::vector<Hospital> hospitals;
@@ -107,37 +114,44 @@ int main()
     renderer.loadHospitalIcon("../assets/hospital.png");
     renderer.loadBrokenTreeIcon("../assets/broken_tree.png");
 
-    // ---------------------------------------------------------------
-    // Register every decoration TYPE here: name, .png path, default size.
-    //   >>> SIZE ADJUSTMENT HAPPENS HERE (3rd argument) <
-    // Add one line per decoration type you want to use in decorations.txt.
-    // The name (1st argument) must exactly match the "type" column you use
-    // in data/decorations.txt.
-    // ---------------------------------------------------------------
     renderer.loadDecorationIcon("tree", "../assets/tree.png", 30.f);
     renderer.loadDecorationIcon("house", "../assets/house.png", 34.f);
     renderer.loadDecorationIcon("small_house", "../assets/small_house.png", 24.f);
     renderer.loadDecorationIcon("building", "../assets/building.png", 60.f);
     renderer.loadDecorationIcon("fountain", "../assets/fountain.png", 90.f);
 
-    // Load the actual placed decorations (positions) from the data file.
     std::vector<DecorationEntry> decorations;
     if (!DecorationLoader::load("../data/decorations.txt", decorations)) {
-        std::cerr << "Warning: could not load decorations.txt (continuing with no decorations)." << std::endl;
+        std::cerr << "Warning: could not load decorations.txt." << std::endl;
     }
     renderer.setDecorations(decorations);
 
     sf::Font uiFont;
     bool uiFontLoaded = uiFont.openFromFile("../assets/Arial.ttf");
 
+    // Fixed color per ambulance (cycled if more ambulances than colors), used for path overlays.
+    std::vector<sf::Color> ambulanceColors = {
+        sf::Color(60, 200, 120, 140),
+        sf::Color(80, 160, 255, 140),
+        sf::Color(255, 170, 60, 140),
+        sf::Color(200, 100, 255, 140),
+        sf::Color(255, 120, 150, 140),
+        sf::Color(255, 220, 80, 140),
+    };
+    std::unordered_map<int, sf::Color> colorByAmbulanceId;
+    for (size_t i = 0; i < ambulances.size(); ++i) {
+        colorByAmbulanceId[ambulances[i].id] = ambulanceColors[i % ambulanceColors.size()];
+    }
+
     Button toggleButton({MAP_WIDTH + 20.f, 60.f}, {300.f, 46.f}, "Start");
     Button resetButton({MAP_WIDTH + 20.f, 116.f}, {300.f, 46.f}, "Reset");
-    Button randomIncidentButton({MAP_WIDTH + 20.f, 172.f}, {300.f, 46.f}, "Trigger Random Incident");
+    Button chaosButton({MAP_WIDTH + 20.f, 172.f}, {300.f, 46.f}, "Trigger Chaos Event");
 
     AppState appState = AppState::Ready;
 
     const float TICK_INTERVAL_SECONDS = 1.0f;
     sf::Clock tickClock;
+    sf::Clock pulseClock;
     size_t lastPrintedEvent = 0;
 
     while (window.isOpen())
@@ -145,7 +159,7 @@ int main()
         sf::Vector2f mousePos = window.mapPixelToCoords(sf::Mouse::getPosition(window));
         toggleButton.updateHover(mousePos);
         resetButton.updateHover(mousePos);
-        randomIncidentButton.updateHover(mousePos);
+        chaosButton.updateHover(mousePos);
 
         while (const std::optional<sf::Event> event = window.pollEvent())
         {
@@ -181,63 +195,73 @@ int main()
                         appState = AppState::Ready;
                         lastPrintedEvent = 0;
                         tickClock.restart();
+                        colorByAmbulanceId.clear();
+                        for (size_t i = 0; i < ambulances.size(); ++i) {
+                            colorByAmbulanceId[ambulances[i].id] = ambulanceColors[i % ambulanceColors.size()];
+                        }
                         std::cout << "--- Simulation reset ---" << std::endl;
                     }
 
-                    if (randomIncidentButton.contains(clickPos))
+                    if (chaosButton.contains(clickPos))
                     {
-                        std::vector<int> ids = city.getAllNodeIds();
-                        if (!ids.empty())
-                        {
-                            int node = ids[std::rand() % ids.size()];
-                            IncidentSeverity sev = static_cast<IncidentSeverity>(std::rand() % 3);
-                            sim.triggerManualIncident(node, sev);
-                        }
+                        sim.triggerChaosEvent();
                     }
 
+                    // --- click inside map area: node click creates an incident, road click blocks/unblocks ---
                     if (clickPos.x < MAP_WIDTH)
                     {
-                        float bestDist = std::numeric_limits<float>::max();
-                        int bestFrom = -1, bestTo = -1;
-
-                        for (const auto &e : city.getAllEdgesForRender())
+                        int hitNode = -1;
+                        for (int id : city.getAllNodeIds())
                         {
-                            NodePos p1 = city.getPosition(e.from);
-                            NodePos p2 = city.getPosition(e.to);
-                            sf::Vector2f a = transform.toScreen(p1.x, p1.y);
-                            sf::Vector2f b = transform.toScreen(p2.x, p2.y);
-
-                            float dist = distanceToSegment(clickPos, a, b);
-                            if (dist < bestDist)
+                            NodePos p = city.getPosition(id);
+                            sf::Vector2f nodeScreen = transform.toScreen(p.x, p.y);
+                            if (distanceToPoint(clickPos, nodeScreen) <= NODE_CLICK_RADIUS)
                             {
-                                bestDist = dist;
-                                bestFrom = e.from;
-                                bestTo = e.to;
+                                hitNode = id;
+                                break;
                             }
                         }
 
-                        const float CLICK_THRESHOLD = MapRenderer::ROAD_WIDTH / 2.f + 14.f;
-                        if (bestFrom != -1 && bestDist <= CLICK_THRESHOLD)
+                        if (hitNode != -1)
                         {
-                            bool currentlyBlocked = false;
+                            IncidentSeverity sev = static_cast<IncidentSeverity>(std::rand() % 3);
+                            sim.triggerManualIncident(hitNode, sev);
+                        }
+                        else
+                        {
+                            float bestDist = std::numeric_limits<float>::max();
+                            int bestFrom = -1, bestTo = -1;
+
                             for (const auto &e : city.getAllEdgesForRender())
                             {
-                                if ((e.from == bestFrom && e.to == bestTo) || (e.from == bestTo && e.to == bestFrom))
+                                NodePos p1 = city.getPosition(e.from);
+                                NodePos p2 = city.getPosition(e.to);
+                                sf::Vector2f a = transform.toScreen(p1.x, p1.y);
+                                sf::Vector2f b = transform.toScreen(p2.x, p2.y);
+
+                                float dist = distanceToSegment(clickPos, a, b);
+                                if (dist < bestDist)
                                 {
-                                    currentlyBlocked = e.blocked;
-                                    break;
+                                    bestDist = dist;
+                                    bestFrom = e.from;
+                                    bestTo = e.to;
                                 }
                             }
 
-                            if (currentlyBlocked)
+                            const float CLICK_THRESHOLD = MapRenderer::ROAD_WIDTH / 2.f + 14.f;
+                            if (bestFrom != -1 && bestDist <= CLICK_THRESHOLD)
                             {
-                                city.unblockEdge(bestFrom, bestTo);
-                                std::cout << "Road unblocked (manual click): " << bestFrom << " <-> " << bestTo << std::endl;
-                            }
-                            else
-                            {
-                                city.blockEdge(bestFrom, bestTo);
-                                std::cout << "Road blocked (manual click): " << bestFrom << " <-> " << bestTo << std::endl;
+                                bool currentlyBlocked = city.isEdgeBlocked(bestFrom, bestTo);
+                                if (currentlyBlocked)
+                                {
+                                    city.unblockEdge(bestFrom, bestTo);
+                                    std::cout << "Road unblocked (manual click): " << bestFrom << " <-> " << bestTo << std::endl;
+                                }
+                                else
+                                {
+                                    city.blockEdge(bestFrom, bestTo);
+                                    std::cout << "Road blocked (manual click): " << bestFrom << " <-> " << bestTo << std::endl;
+                                }
                             }
                         }
                     }
@@ -294,6 +318,7 @@ int main()
         renderer.drawMap(window, city, transform);
         renderer.drawHospitals(window, hospitals, city, transform);
 
+        // ---- Path overlays (drawn before ambulance icons, on top of roads) ----
         std::vector<Simulation::AmbulanceRenderState> ambStates(ambulances.size());
         std::unordered_map<int, std::vector<size_t>> parkedByNode;
 
@@ -306,6 +331,26 @@ int main()
             }
         }
 
+        for (size_t i = 0; i < ambulances.size(); ++i)
+        {
+            if (!ambStates[i].isMoving) continue;
+            sf::Color col = colorByAmbulanceId.count(ambulances[i].id)
+                ? colorByAmbulanceId[ambulances[i].id]
+                : sf::Color(100, 200, 100, 140);
+            renderer.drawAmbulanceRoute(window, ambStates[i].fullRemainingRoute, city, transform, col);
+        }
+
+        // ---- Incident beacons ----
+        float pulsePhase = std::fmod(pulseClock.getElapsedTime().asSeconds(), 1.5f) / 1.5f;
+        for (const auto &inc : sim.getActiveIncidents())
+        {
+            if (!city.hasNode(inc.nodeId)) continue;
+            NodePos p = city.getPosition(inc.nodeId);
+            sf::Vector2f pos = transform.toScreen(p.x, p.y);
+            renderer.drawIncidentBeacon(window, pos, pulsePhase);
+        }
+
+        // ---- Ambulances ----
         const float PARK_SPACING = 44.f;
         const float PARK_OFFSET_Y = 55.f;
 
@@ -316,10 +361,10 @@ int main()
             sf::Vector2f pos;
             float heading = 0.f;
 
-            if (state.isMoving && !state.routeNodes.empty())
+            if (state.isMoving && state.currentEdgeNodes.size() == 2)
             {
-                pos = renderer.interpolateAlongPath(state.routeNodes, state.progress, city, transform);
-                heading = renderer.getHeadingAlongPath(state.routeNodes, state.progress, city, transform);
+                pos = renderer.interpolateAlongPath(state.currentEdgeNodes, state.progress, city, transform);
+                heading = renderer.getHeadingAlongPath(state.currentEdgeNodes, state.progress, city, transform);
             }
             else
             {
@@ -344,10 +389,10 @@ int main()
 
             renderer.drawAmbulanceAt(window, pos, amb.id, heading + 180.f);
 
-            if (state.isMoving && state.headingToIncident && uiFontLoaded)
+            if (state.isMoving && uiFontLoaded)
             {
                 sf::Text etaText(uiFont);
-                etaText.setString("ETA: " + std::to_string(state.ticksRemaining));
+                etaText.setString("ETA: " + std::to_string(state.ticksRemainingTotal));
                 etaText.setCharacterSize(13);
                 etaText.setFillColor(sf::Color(255, 230, 140));
                 etaText.setPosition({pos.x - 20.f, pos.y - 50.f});
@@ -355,6 +400,7 @@ int main()
             }
         }
 
+        // ---------------- Sidebar ----------------
         sf::RectangleShape sidebarBg({SIDEBAR_WIDTH, MAP_HEIGHT});
         sidebarBg.setPosition({MAP_WIDTH, 0.f});
         sidebarBg.setFillColor(sf::Color(15, 20, 30));
@@ -372,7 +418,7 @@ int main()
 
         toggleButton.draw(window, uiFont, uiFontLoaded);
         resetButton.draw(window, uiFont, uiFontLoaded);
-        randomIncidentButton.draw(window, uiFont, uiFontLoaded);
+        chaosButton.draw(window, uiFont, uiFontLoaded);
 
         float infoY = 236.f;
         auto drawInfoLine = [&](const std::string &text, sf::Color color = sf::Color(220, 220, 225))
@@ -398,6 +444,9 @@ int main()
 
         drawInfoLine("Tick: " + std::to_string(sim.currentTick()));
         drawInfoLine("State: " + stateStr);
+        infoY += 6.f;
+        drawInfoLine("Click a node: new incident", sf::Color(160, 200, 255));
+        drawInfoLine("Click a road: block/unblock", sf::Color(160, 200, 255));
         infoY += 10.f;
 
         int idleCount = 0, enRouteCount = 0, onSceneCount = 0, returningCount = 0;
