@@ -9,7 +9,7 @@ enum class AmbulanceStatus {
 
 struct Ambulance {
     int id;
-    int currentNodeId;   // where it is right now on the graph
-    int homeHospitalId;  // which hospital it's based at
+    int currentNodeId;
+    int homeHospitalId;
     AmbulanceStatus status = AmbulanceStatus::Idle;
 };

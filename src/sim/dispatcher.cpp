@@ -1,40 +1,40 @@
 #include "sim/dispatcher.hpp"
 #include <limits>
 
-Dispatcher::Dispatcher(Graph& graph, IPathfinder& pathfinder, std::vector<Ambulance>& ambulances)
-    : graph_(graph), pathfinder_(pathfinder), ambulances_(ambulances) {}
+Dispatcher::Dispatcher(Graph& g, IPathfinder& p, std::vector<Ambulance>& a)
+    : graph(g), pathfinder(p), ambulances(a) {}
 
 DispatchResult Dispatcher::assign(Incident& incident) {
     DispatchResult result;
 
-    Ambulance* best = nullptr;
+    int bestIndex = -1;
     Path bestPath;
     double bestCost = std::numeric_limits<double>::max();
 
-    for (auto& amb : ambulances_) {
-        if (amb.status != AmbulanceStatus::Idle) continue;
+    for (int i = 0; i < ambulances.size(); i++) {
+        if (ambulances[i].status != AmbulanceStatus::Idle) continue;
 
-        Path candidate = pathfinder_.findPath(graph_, amb.currentNodeId, incident.nodeId);
-        if (candidate.totalCost < 0) continue; // no path to this incident
+        Path candidate = pathfinder.findPath(graph, ambulances[i].currentNodeId, incident.nodeId);
+        if (candidate.totalCost < 0) continue; // no route exists
 
         if (candidate.totalCost < bestCost) {
             bestCost = candidate.totalCost;
-            best = &amb;
+            bestIndex = i;
             bestPath = candidate;
         }
     }
 
-    if (!best) {
+    if (bestIndex == -1) {
         result.success = false;
         return result;
     }
 
-    best->status = AmbulanceStatus::EnRouteToIncident;
+    ambulances[bestIndex].status = AmbulanceStatus::EnRouteToIncident;
     incident.status = IncidentStatus::Assigned;
-    incident.assignedAmbulanceId = best->id;
+    incident.assignedAmbulanceId = ambulances[bestIndex].id;
 
     result.success = true;
-    result.ambulanceId = best->id;
+    result.ambulanceId = ambulances[bestIndex].id;
     result.route = bestPath;
     return result;
 }

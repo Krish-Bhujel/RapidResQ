@@ -1,8 +1,8 @@
 #pragma once
 #include <string>
 #include <vector>
-#include "sim/ambulance.hpp"
 #include "sim/hospital.hpp"
+#include "sim/ambulance.hpp"
 
 class EntityLoader {
 public:

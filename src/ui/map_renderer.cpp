@@ -4,69 +4,63 @@
 #include <cmath>
 #include <iostream>
 
-// ---------------------------------------------------------------------
-// MapTransform  (kept exactly as you customized it)
-// ---------------------------------------------------------------------
+MapTransform::MapTransform(const Graph& graph, float sw, float sh, float pad)
+    : padding_(pad), screenWidth_(sw), screenHeight_(sh) {
 
-MapTransform::MapTransform(const Graph& graph, float screenWidth, float screenHeight, float padding)
-    : padding_(padding),
-      screenWidth_(screenWidth),
-      screenHeight_(screenHeight) {
+    double minXVal = std::numeric_limits<double>::max();
+    double maxXVal = std::numeric_limits<double>::lowest();
+    double minYVal = std::numeric_limits<double>::max();
+    double maxYVal = std::numeric_limits<double>::lowest();
 
-    double minX = std::numeric_limits<double>::max();
-    double maxX = std::numeric_limits<double>::lowest();
-    double minY = std::numeric_limits<double>::max();
-    double maxY = std::numeric_limits<double>::lowest();
-
-    for (int id = 1; id <= 2000; ++id) {
-        if (!graph.hasNode(id)) continue;
-        NodePos p = graph.getPosition(id);
-        minX = std::min(minX, p.x);
-        maxX = std::max(maxX, p.x);
-        minY = std::min(minY, p.y);
-        maxY = std::max(maxY, p.y);
+    std::vector<int> ids = graph.getAllNodeIds();
+    for (int i = 0; i < ids.size(); i++) {
+        NodePos p = graph.getPosition(ids[i]);
+        if (p.x < minXVal) minXVal = p.x;
+        if (p.x > maxXVal) maxXVal = p.x;
+        if (p.y < minYVal) minYVal = p.y;
+        if (p.y > maxYVal) maxYVal = p.y;
     }
 
-    if (minX > maxX) { minX = 0; maxX = 1; minY = 0; maxY = 1; }
+    if (minXVal > maxXVal) {
+        minXVal = 0; maxXVal = 1; minYVal = 0; maxYVal = 1;
+    }
 
-    double rangeX = std::max(0.001, maxX - minX);
-    double rangeY = std::max(0.001, maxY - minY);
+    double rangeX = maxXVal - minXVal;
+    if (rangeX < 0.001) rangeX = 0.001;
+    double rangeY = maxYVal - minYVal;
+    if (rangeY < 0.001) rangeY = 0.001;
 
-    double usableW = screenWidth - 2 * padding;
-    double usableH = screenHeight - 2 * padding;
+    double usableW = sw - 2 * pad;
+    double usableH = sh - 2 * pad;
 
-    scale_ = std::min(usableW / rangeX, usableH / rangeY) * 1.4;
-    minX_ = minX;
-    minY_ = minY;
+    double scaleX = usableW / rangeX;
+    double scaleY = usableH / rangeY;
+    scale_ = (scaleX < scaleY ? scaleX : scaleY) * 1.4;
+
+    minX_ = minXVal;
+    minY_ = minYVal;
 }
 
 sf::Vector2f MapTransform::toScreen(double x, double y) const {
-    const double centerX = 5.0;
-    const double centerY = 5.0;
-
+    double centerX = 5.0;
+    double centerY = 5.0;
     float sx = static_cast<float>((screenWidth_ / 2.f) + (x - centerX) * scale_);
     float sy = static_cast<float>((screenHeight_ / 2.f) - (y - centerY) * scale_);
-    return {sx, sy};
+    return sf::Vector2f(sx, sy);
 }
-
-// ---------------------------------------------------------------------
-// MapRenderer
-// ---------------------------------------------------------------------
 
 MapRenderer::MapRenderer() {}
 
-bool MapRenderer::loadFont(const std::string& fontPath) {
-    fontLoaded_ = font_.openFromFile(fontPath);
+bool MapRenderer::loadFont(const std::string& path) {
+    fontLoaded_ = font_.openFromFile(path);
     return fontLoaded_;
 }
+
 bool MapRenderer::loadAmbulanceIcon(const std::string& path) {
     ambulanceTextureLoaded_ = ambulanceTexture_.loadFromFile(path);
     return ambulanceTextureLoaded_;
 }
-bool MapRenderer::loadHospitalIcon(const std::string& path) {
-    hospitalTextureLoaded_ = hospitalTexture_.loadFromFile(path);
-    return hospitalTextureLoaded_;
-}
+
 bool MapRenderer::loadBrokenTreeIcon(const std::string& path) {
     brokenTreeTextureLoaded_ = brokenTreeTexture_.loadFromFile(path);
     return brokenTreeTextureLoaded_;
@@ -75,40 +69,41 @@ bool MapRenderer::loadBrokenTreeIcon(const std::string& path) {
 bool MapRenderer::loadDecorationIcon(const std::string& type, const std::string& path, float defaultSize) {
     sf::Texture tex;
     if (!tex.loadFromFile(path)) {
-        std::cerr << "MapRenderer: failed to load decoration icon '" << type << "' from " << path << std::endl;
+        std::cerr << "Failed to load decoration icon: " << type << std::endl;
         return false;
     }
-    decorationTextures_[type] = std::move(tex);
-    decorationDefaultSizes_[type] = defaultSize; // <-- per-type size lives here
+    decorationTextures_[type] = tex;
+    decorationDefaultSizes_[type] = defaultSize;
     return true;
 }
 
-void MapRenderer::setDecorations(const std::vector<DecorationEntry>& decorations) {
-    decorations_ = decorations;
+void MapRenderer::setDecorations(const std::vector<DecorationEntry>& decos) {
+    decorations_ = decos;
 }
 
-void MapRenderer::drawIconOrFallback(sf::RenderWindow& window, sf::Vector2f pos, float targetSize,
+void MapRenderer::drawIconOrFallback(sf::RenderWindow& window, sf::Vector2f pos, float size,
                                       sf::Texture& texture, bool loaded, sf::Color fallbackColor,
-                                      bool fallbackIsCircle, float rotationDegrees) {
+                                      bool circleFallback, float rotationDegrees) {
     if (loaded) {
         sf::Sprite sprite(texture);
         sf::Vector2u texSize = texture.getSize();
-        float scale = targetSize / static_cast<float>(std::max(texSize.x, texSize.y));
-        sprite.setScale({scale, scale});
+        float maxSide = texSize.x > texSize.y ? static_cast<float>(texSize.x) : static_cast<float>(texSize.y);
+        float scaleAmt = size / maxSide;
+        sprite.setScale({scaleAmt, scaleAmt});
         sprite.setOrigin({texSize.x / 2.f, texSize.y / 2.f});
         sprite.setPosition(pos);
         sprite.setRotation(sf::degrees(rotationDegrees));
         window.draw(sprite);
-    } else if (fallbackIsCircle) {
-        sf::CircleShape c(targetSize / 2.f);
+    } else if (circleFallback) {
+        sf::CircleShape c(size / 2.f);
         c.setFillColor(fallbackColor);
-        c.setOrigin({targetSize / 2.f, targetSize / 2.f});
+        c.setOrigin({size / 2.f, size / 2.f});
         c.setPosition(pos);
         window.draw(c);
     } else {
-        sf::RectangleShape r({targetSize, targetSize});
+        sf::RectangleShape r({size, size});
         r.setFillColor(fallbackColor);
-        r.setOrigin({targetSize / 2.f, targetSize / 2.f});
+        r.setOrigin({size / 2.f, size / 2.f});
         r.setPosition(pos);
         r.setRotation(sf::degrees(rotationDegrees));
         window.draw(r);
@@ -116,77 +111,94 @@ void MapRenderer::drawIconOrFallback(sf::RenderWindow& window, sf::Vector2f pos,
 }
 
 void MapRenderer::drawDecorations(sf::RenderWindow& window, const MapTransform& transform) {
-    for (const auto& d : decorations_) {
+    for (int i = 0; i < decorations_.size(); i++) {
+        DecorationEntry d = decorations_[i];
         sf::Vector2f pos = transform.toScreen(d.x, d.y);
 
-        auto texIt = decorationTextures_.find(d.type);
-        bool loaded = (texIt != decorationTextures_.end());
+        bool loaded = decorationTextures_.count(d.type) > 0;
 
-        float size = d.size; // per-entry override, if set
+        float size = d.size;
         if (size <= 0.f) {
-            auto sizeIt = decorationDefaultSizes_.find(d.type);
-            size = (sizeIt != decorationDefaultSizes_.end()) ? sizeIt->second : DEFAULT_DECORATION_SIZE;
+            if (decorationDefaultSizes_.count(d.type) > 0) {
+                size = decorationDefaultSizes_[d.type];
+            } else {
+                size = DEFAULT_DECORATION_SIZE;
+            }
         }
 
         if (loaded) {
-            drawIconOrFallback(window, pos, size, texIt->second, true, sf::Color::White, false);
+            drawIconOrFallback(window, pos, size, decorationTextures_[d.type], true, sf::Color::White, false);
         } else {
-            // Unregistered type: draw a magenta square so it's obvious something's misconfigured,
-            // instead of silently not showing anything.
             drawIconOrFallback(window, pos, size, ambulanceTexture_, false, sf::Color(220, 40, 220), false);
         }
     }
 }
 
 void MapRenderer::drawMap(sf::RenderWindow& window, const Graph& graph, const MapTransform& transform) {
-    for (const auto& e : graph.getAllEdgesForRender()) {
-        NodePos p1 = graph.getPosition(e.from);
-        NodePos p2 = graph.getPosition(e.to);
-        sf::Vector2f a = transform.toScreen(p1.x, p1.y);
-        sf::Vector2f b = transform.toScreen(p2.x, p2.y);
+    std::vector<int> ids = graph.getAllNodeIds();
 
-        sf::Vector2f dir = b - a;
-        float length = std::sqrt(dir.x * dir.x + dir.y * dir.y);
-        float angleDeg = std::atan2(dir.y, dir.x) * 180.f / 3.14159265f;
+    // Draw roads (avoid drawing each edge twice by only drawing when from < to)
+    for (int i = 0; i < ids.size(); i++) {
+        int from = ids[i];
+        std::vector<Edge> neighbours = graph.getAllNeighbours(from);
+        for (int j = 0; j < neighbours.size(); j++) {
+            int to = neighbours[j].to;
+            if (from >= to) continue;
 
-        sf::RectangleShape road({length, ROAD_WIDTH});
-        road.setOrigin({0.f, ROAD_WIDTH / 2.f});
-        road.setPosition(a);
-        road.setRotation(sf::degrees(angleDeg));
-        road.setFillColor(e.blocked ? sf::Color(90, 40, 40) : sf::Color(70, 76, 86));
-        window.draw(road);
+            NodePos p1 = graph.getPosition(from);
+            NodePos p2 = graph.getPosition(to);
+            sf::Vector2f a = transform.toScreen(p1.x, p1.y);
+            sf::Vector2f b = transform.toScreen(p2.x, p2.y);
 
-        sf::RectangleShape centerLine({length, 3.f});
-        centerLine.setOrigin({0.f, 1.5f});
-        centerLine.setPosition(a);
-        centerLine.setRotation(sf::degrees(angleDeg));
-        centerLine.setFillColor(sf::Color(220, 200, 120, 160));
-        window.draw(centerLine);
+            sf::Vector2f dir = b - a;
+            float length = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+            float angleDeg = std::atan2(dir.y, dir.x) * 180.f / 3.14159265f;
 
-        if (e.blocked) {
-            sf::Vector2f mid = a + dir * 0.5f;
-            drawIconOrFallback(window, mid, BROKEN_TREE_SIZE, brokenTreeTexture_,
-                                brokenTreeTextureLoaded_, sf::Color(110, 70, 40), false,
-                                angleDeg + 90.f);
+            bool blocked = graph.isEdgeBlocked(from, to);
+
+            sf::RectangleShape road({length, static_cast<float>(ROAD_WIDTH)});
+            road.setOrigin({0.f, ROAD_WIDTH / 2.f});
+            road.setPosition(a);
+            road.setRotation(sf::degrees(angleDeg));
+            if (blocked) {
+                road.setFillColor(sf::Color(90, 40, 40));
+            } else {
+                road.setFillColor(sf::Color(70, 76, 86));
+            }
+            window.draw(road);
+
+            sf::RectangleShape centerLine({length, 3.f});
+            centerLine.setOrigin({0.f, 1.5f});
+            centerLine.setPosition(a);
+            centerLine.setRotation(sf::degrees(angleDeg));
+            centerLine.setFillColor(sf::Color(220, 200, 120, 160));
+            window.draw(centerLine);
+
+            if (blocked) {
+                sf::Vector2f mid = a + dir * 0.5f;
+                drawIconOrFallback(window, mid, BROKEN_TREE_SIZE, brokenTreeTexture_,
+                                    brokenTreeTextureLoaded_, sf::Color(110, 70, 40), false,
+                                    angleDeg + 90.f);
+            }
         }
     }
 
-    for (int id = 1; id <= 2000; ++id) {
-        if (!graph.hasNode(id)) continue;
-        NodePos p = graph.getPosition(id);
+    // Draw nodes
+    for (int i = 0; i < ids.size(); i++) {
+        NodePos p = graph.getPosition(ids[i]);
         sf::Vector2f pos = transform.toScreen(p.x, p.y);
 
         sf::CircleShape circle(NODE_RADIUS);
         circle.setFillColor(sf::Color(235, 235, 240));
         circle.setOutlineColor(sf::Color(50, 55, 65));
         circle.setOutlineThickness(2.f);
-        circle.setOrigin({NODE_RADIUS, NODE_RADIUS});
+        circle.setOrigin({static_cast<float>(NODE_RADIUS), static_cast<float>(NODE_RADIUS)});
         circle.setPosition(pos);
         window.draw(circle);
 
         if (fontLoaded_) {
             sf::Text label(font_);
-            label.setString(std::to_string(id));
+            label.setString(std::to_string(ids[i]));
             label.setCharacterSize(14);
             label.setFillColor(sf::Color(235, 235, 240));
             label.setPosition({pos.x - 4.f, pos.y - 26.f});
@@ -195,39 +207,8 @@ void MapRenderer::drawMap(sf::RenderWindow& window, const Graph& graph, const Ma
     }
 }
 
-void MapRenderer::drawHospitals(sf::RenderWindow& window, const std::vector<Hospital>& hospitals,
-                                 const Graph& graph, const MapTransform& transform) {
-    const float HOSPITAL_OFFSET_Y = -70.f;
-
-    for (const auto& h : hospitals) {
-        if (!graph.hasNode(h.nodeId)) continue;
-        NodePos p = graph.getPosition(h.nodeId);
-        sf::Vector2f nodePos = transform.toScreen(p.x, p.y);
-        sf::Vector2f pos = { nodePos.x, nodePos.y + HOSPITAL_OFFSET_Y };
-
-        sf::Vertex line[] = {
-            sf::Vertex{nodePos, sf::Color(60, 130, 220, 140)},
-            sf::Vertex{pos, sf::Color(60, 130, 220, 140)}
-        };
-        window.draw(line, 2, sf::PrimitiveType::Lines);
-
-        drawIconOrFallback(window, pos, HOSPITAL_SIZE, hospitalTexture_, hospitalTextureLoaded_,
-                            sf::Color(60, 130, 220), false);
-
-        if (fontLoaded_) {
-            sf::Text label(font_);
-            label.setString("H" + std::to_string(h.id));
-            label.setCharacterSize(14);
-            label.setFillColor(sf::Color::White);
-            label.setPosition({pos.x - 10.f, pos.y - HOSPITAL_SIZE / 2.f - 20.f});
-            window.draw(label);
-        }
-    }
-}
-
-void MapRenderer::drawAmbulanceAt(sf::RenderWindow& window, sf::Vector2f screenPos, int ambulanceId,
-                                   float rotationDegrees) {
-    drawIconOrFallback(window, screenPos, AMBULANCE_SIZE, ambulanceTexture_, ambulanceTextureLoaded_,
+void MapRenderer::drawAmbulanceAt(sf::RenderWindow& window, sf::Vector2f pos, int ambulanceId, float rotationDegrees) {
+    drawIconOrFallback(window, pos, AMBULANCE_SIZE, ambulanceTexture_, ambulanceTextureLoaded_,
                         sf::Color(220, 60, 60), true, rotationDegrees);
 
     if (fontLoaded_) {
@@ -235,60 +216,15 @@ void MapRenderer::drawAmbulanceAt(sf::RenderWindow& window, sf::Vector2f screenP
         label.setString("A" + std::to_string(ambulanceId));
         label.setCharacterSize(12);
         label.setFillColor(sf::Color::White);
-        label.setPosition({screenPos.x - 9.f, screenPos.y + AMBULANCE_SIZE / 2.f + 2.f});
+        label.setPosition({pos.x - 9.f, pos.y + AMBULANCE_SIZE / 2.f + 2.f});
         window.draw(label);
     }
-}
-
-sf::Vector2f MapRenderer::interpolateAlongPath(const std::vector<int>& pathNodes, float progress,
-                                                 const Graph& graph, const MapTransform& transform) {
-    if (pathNodes.empty()) return {0.f, 0.f};
-    if (pathNodes.size() == 1) {
-        NodePos p = graph.getPosition(pathNodes[0]);
-        return transform.toScreen(p.x, p.y);
-    }
-
-    progress = std::max(0.f, std::min(1.f, progress));
-
-    int segmentCount = static_cast<int>(pathNodes.size()) - 1;
-    float scaledProgress = progress * segmentCount;
-    int segmentIndex = std::min(segmentCount - 1, static_cast<int>(scaledProgress));
-    float segmentT = scaledProgress - segmentIndex;
-
-    NodePos p1 = graph.getPosition(pathNodes[segmentIndex]);
-    NodePos p2 = graph.getPosition(pathNodes[segmentIndex + 1]);
-    sf::Vector2f a = transform.toScreen(p1.x, p1.y);
-    sf::Vector2f b = transform.toScreen(p2.x, p2.y);
-
-    return {
-        a.x + (b.x - a.x) * segmentT,
-        a.y + (b.y - a.y) * segmentT
-    };
-}
-
-float MapRenderer::getHeadingAlongPath(const std::vector<int>& pathNodes, float progress,
-                                        const Graph& graph, const MapTransform& transform) {
-    if (pathNodes.size() < 2) return 0.f;
-
-    progress = std::max(0.f, std::min(1.f, progress));
-
-    int segmentCount = static_cast<int>(pathNodes.size()) - 1;
-    float scaledProgress = progress * segmentCount;
-    int segmentIndex = std::min(segmentCount - 1, static_cast<int>(scaledProgress));
-
-    NodePos p1 = graph.getPosition(pathNodes[segmentIndex]);
-    NodePos p2 = graph.getPosition(pathNodes[segmentIndex + 1]);
-    sf::Vector2f a = transform.toScreen(p1.x, p1.y);
-    sf::Vector2f b = transform.toScreen(p2.x, p2.y);
-
-    sf::Vector2f dir = b - a;
-    return std::atan2(dir.y, dir.x) * 180.f / 3.14159265f;
 }
 
 void MapRenderer::drawAmbulanceRoute(sf::RenderWindow& window, const std::vector<int>& routeNodes,
                                       const Graph& graph, const MapTransform& transform, sf::Color color) {
     if (routeNodes.size() < 2) return;
-    for (size_t i = 0; i + 1 < routeNodes.size(); ++i) {
+    for (int i = 0; i + 1 < routeNodes.size(); i++) {
         NodePos p1 = graph.getPosition(routeNodes[i]);
         NodePos p2 = graph.getPosition(routeNodes[i + 1]);
         sf::Vector2f a = transform.toScreen(p1.x, p1.y);
@@ -323,4 +259,50 @@ void MapRenderer::drawIncidentBeacon(sf::RenderWindow& window, sf::Vector2f pos,
     dot.setPosition(pos);
     dot.setFillColor(sf::Color(255, 50, 50));
     window.draw(dot);
+}
+
+sf::Vector2f MapRenderer::interpolateAlongPath(const std::vector<int>& pathNodes, float progress,
+                                                 const Graph& graph, const MapTransform& transform) {
+    if (pathNodes.size() == 0) return sf::Vector2f(0.f, 0.f);
+    if (pathNodes.size() == 1) {
+        NodePos p = graph.getPosition(pathNodes[0]);
+        return transform.toScreen(p.x, p.y);
+    }
+
+    if (progress < 0.f) progress = 0.f;
+    if (progress > 1.f) progress = 1.f;
+
+    int segmentCount = pathNodes.size() - 1;
+    float scaled = progress * segmentCount;
+    int segIndex = static_cast<int>(scaled);
+    if (segIndex > segmentCount - 1) segIndex = segmentCount - 1;
+    float segT = scaled - segIndex;
+
+    NodePos p1 = graph.getPosition(pathNodes[segIndex]);
+    NodePos p2 = graph.getPosition(pathNodes[segIndex + 1]);
+    sf::Vector2f a = transform.toScreen(p1.x, p1.y);
+    sf::Vector2f b = transform.toScreen(p2.x, p2.y);
+
+    return sf::Vector2f(a.x + (b.x - a.x) * segT, a.y + (b.y - a.y) * segT);
+}
+
+float MapRenderer::getHeadingAlongPath(const std::vector<int>& pathNodes, float progress,
+                                        const Graph& graph, const MapTransform& transform) {
+    if (pathNodes.size() < 2) return 0.f;
+
+    if (progress < 0.f) progress = 0.f;
+    if (progress > 1.f) progress = 1.f;
+
+    int segmentCount = pathNodes.size() - 1;
+    float scaled = progress * segmentCount;
+    int segIndex = static_cast<int>(scaled);
+    if (segIndex > segmentCount - 1) segIndex = segmentCount - 1;
+
+    NodePos p1 = graph.getPosition(pathNodes[segIndex]);
+    NodePos p2 = graph.getPosition(pathNodes[segIndex + 1]);
+    sf::Vector2f a = transform.toScreen(p1.x, p1.y);
+    sf::Vector2f b = transform.toScreen(p2.x, p2.y);
+
+    sf::Vector2f dir = b - a;
+    return std::atan2(dir.y, dir.x) * 180.f / 3.14159265f;
 }

@@ -1,139 +1,131 @@
 #include "graph/graph.hpp"
 
 void Graph::addNode(int id, double x, double y) {
-    if (positions_.count(id)) {
-        throw std::invalid_argument("Node with this id already exists: " + std::to_string(id));
+    if (positions.count(id) > 0) {
+        // Node already exists — throw stops the program with an error message
+        // if this ever happens, instead of silently corrupting data.
+        throw std::invalid_argument("Node already exists");
     }
-    positions_[id] = {x, y};
-    adjacency_[id] = {};
+    positions[id] = NodePos{x, y};
+    adjacency[id] = std::vector<Edge>(); // start with an empty road list
 }
 
 void Graph::addEdge(int from, int to, double weight) {
-    if (!positions_.count(from) || !positions_.count(to)) {
-        throw std::out_of_range("Cannot add edge: unknown node id");
+    if (positions.count(from) == 0 || positions.count(to) == 0) {
+        throw std::out_of_range("Unknown node id");
     }
-    adjacency_[from].push_back({to, weight, false});
-    adjacency_[to].push_back({from, weight, false});
+    // Roads work both directions, so we add the edge twice.
+    Edge e1;
+    e1.to = to;
+    e1.weight = weight;
+    adjacency[from].push_back(e1);
+
+    Edge e2;
+    e2.to = from;
+    e2.weight = weight;
+    adjacency[to].push_back(e2);
 }
 
 std::vector<Edge> Graph::getNeighbours(int id) const {
-    auto it = adjacency_.find(id);
-    if (it == adjacency_.end()) {
-        throw std::out_of_range("Unknown node id: " + std::to_string(id));
-    }
     std::vector<Edge> result;
-    for (const auto& e : it->second) {
+    if (adjacency.count(id) == 0) {
+        throw std::out_of_range("Unknown node id");
+    }
+    for (int i = 0; i < adjacency.at(id).size(); i++) {
+        Edge e = adjacency.at(id)[i];
         if (!e.blocked) {
-            result.push_back({e.to, e.weight});
+            result.push_back(e);
         }
     }
     return result;
 }
 
-void Graph::blockEdge(int from, int to) {
-    auto setBlocked = [&](int a, int b, bool value) {
-        auto it = adjacency_.find(a);
-        if (it == adjacency_.end()) return;
-        for (auto& e : it->second) {
-            if (e.to == b) e.blocked = value;
-        }
-    };
-    setBlocked(from, to, true);
-    setBlocked(to, from, true);
-}
-
-void Graph::unblockEdge(int from, int to) {
-    auto setBlocked = [&](int a, int b, bool value) {
-        auto it = adjacency_.find(a);
-        if (it == adjacency_.end()) return;
-        for (auto& e : it->second) {
-            if (e.to == b) e.blocked = value;
-        }
-    };
-    setBlocked(from, to, false);
-    setBlocked(to, from, false);
-}
-
-int Graph::nodeCount() const {
-    return static_cast<int>(positions_.size());
-}
-
-NodePos Graph::getPosition(int id) const {
-    auto it = positions_.find(id);
-    if (it == positions_.end()) {
-        throw std::out_of_range("Unknown node id: " + std::to_string(id));
+std::vector<Edge> Graph::getAllNeighbours(int id) const {
+    if (adjacency.count(id) == 0) {
+        throw std::out_of_range("Unknown node id");
     }
-    return it->second;
-}
 
-bool Graph::hasNode(int id) const {
-    return positions_.count(id) > 0;
-}
-
-std::vector<Graph::RenderEdge> Graph::getAllEdgesForRender() const {
-    std::vector<RenderEdge> result;
-    for (const auto& [nodeId, edges] : adjacency_) {
-        for (const auto& e : edges) {
-            if (nodeId < e.to) {
-                result.push_back({nodeId, e.to, e.weight, e.blocked});
-            }
-        }
-    }
-    return result;
-}
-
-void Graph::clear() {
-    positions_.clear();
-    adjacency_.clear();
-}
-
-std::vector<int> Graph::getAllNodeIds() const {
-    std::vector<int> ids;
-    ids.reserve(positions_.size());
-    for (const auto& [id, pos] : positions_) {
-        ids.push_back(id);
-    }
-    return ids;
-}
-
-std::vector<std::pair<int, int>> Graph::getBlockedEdges() const {
-    std::vector<std::pair<int, int>> result;
-    for (const auto& [nodeId, edges] : adjacency_) {
-        for (const auto& e : edges) {
-            if (e.blocked && nodeId < e.to) {
-                result.push_back({nodeId, e.to});
-            }
-        }
-    }
-    return result;
+    return adjacency.at(id);
 }
 
 bool Graph::isEdgeBlocked(int from, int to) const {
-    auto it = adjacency_.find(from);
-    if (it == adjacency_.end()) return false;
-    for (const auto& e : it->second) {
-        if (e.to == to) return e.blocked;
+    if (adjacency.count(from) == 0) return false;
+    for (int i = 0; i < adjacency.at(from).size(); i++) {
+        if (adjacency.at(from)[i].to == to) {
+            return adjacency.at(from)[i].blocked;
+        }
     }
     return false;
 }
 
 double Graph::getEdgeWeight(int from, int to) const {
-    auto it = adjacency_.find(from);
-    if (it == adjacency_.end()) return -1.0;
-    for (const auto& e : it->second) {
-        if (e.to == to) return e.weight;
+    if (adjacency.count(from) == 0) return -1;
+    for (int i = 0; i < adjacency.at(from).size(); i++) {
+        if (adjacency.at(from)[i].to == to) {
+            return adjacency.at(from)[i].weight;
+        }
     }
-    return -1.0;
+    return -1;
 }
 
-std::vector<std::pair<int, int>> Graph::getUnblockedEdges() const {
-    std::vector<std::pair<int, int>> result;
-    for (const auto& [nodeId, edges] : adjacency_) {
-        for (const auto& e : edges) {
-            if (!e.blocked && nodeId < e.to) {
-                result.push_back({nodeId, e.to});
+void Graph::blockEdge(int from, int to) {
+    if (adjacency.count(from) > 0) {
+        for (int i = 0; i < adjacency[from].size(); i++) {
+            if (adjacency[from][i].to == to) {
+                adjacency[from][i].blocked = true;
             }
         }
     }
-    return result;
+    if (adjacency.count(to) > 0) {
+        for (int i = 0; i < adjacency[to].size(); i++) {
+            if (adjacency[to][i].to == from) {
+                adjacency[to][i].blocked = true;
+            }
+        }
+    }
+}
+
+void Graph::unblockEdge(int from, int to) {
+    if (adjacency.count(from) > 0) {
+        for (int i = 0; i < adjacency[from].size(); i++) {
+            if (adjacency[from][i].to == to) {
+                adjacency[from][i].blocked = false;
+            }
+        }
+    }
+    if (adjacency.count(to) > 0) {
+        for (int i = 0; i < adjacency[to].size(); i++) {
+            if (adjacency[to][i].to == from) {
+                adjacency[to][i].blocked = false;
+            }
+        }
+    }
+}
+
+bool Graph::hasNode(int id) const {
+    return positions.count(id) > 0;
+}
+
+NodePos Graph::getPosition(int id) const {
+    if (positions.count(id) == 0) {
+        throw std::out_of_range("Unknown node id");
+    }
+    return positions.at(id);
+}
+
+int Graph::nodeCount() const {
+    return positions.size();
+}
+
+std::vector<int> Graph::getAllNodeIds() const {
+    std::vector<int> ids;
+    for (auto pair : positions) {
+        ids.push_back(pair.first);
+    }
+    return ids;
+}
+
+void Graph::clear() {
+    positions.clear();
+    adjacency.clear();
 }

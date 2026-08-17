@@ -2,62 +2,42 @@
 #include <vector>
 #include <unordered_map>
 #include <stdexcept>
-#include <utility>
 
-struct Edge
-{
+// One road connecting to a neighbouring intersection.
+struct Edge {
     int to;
     double weight;
+    bool blocked = false;
 };
 
-struct NodePos
-{
+// The (x, y) position of an intersection, used for drawing on screen.
+struct NodePos {
     double x;
     double y;
 };
 
-class Graph
-{
+// Represents the whole city map: intersections (nodes) and roads (edges).
+class Graph {
 public:
     void addNode(int id, double x, double y);
     void addEdge(int from, int to, double weight);
+
     std::vector<Edge> getNeighbours(int id) const;
+    std::vector<Edge> getAllNeighbours(int id) const;
+    bool isEdgeBlocked(int from, int to) const;
+    double getEdgeWeight(int from, int to) const;
+
     void blockEdge(int from, int to);
     void unblockEdge(int from, int to);
-    int nodeCount() const;
-    NodePos getPosition(int id) const;
+
     bool hasNode(int id) const;
-
-    bool isEdgeBlocked(int from, int to) const;
-    double getEdgeWeight(int from, int to) const;               // -1 if edge doesn't exist
-    std::vector<std::pair<int, int>> getUnblockedEdges() const; // each listed once, from < to
-
-    struct RenderEdge
-    {
-        int from;
-        int to;
-        double weight;
-        bool blocked;
-    };
-    std::vector<RenderEdge> getAllEdgesForRender() const;
-
-    // Wipes the graph completely so it can be reloaded from scratch.
-    void clear();
-
-    // All node ids currently in the graph, in no particular order.
+    NodePos getPosition(int id) const;
+    int nodeCount() const;
     std::vector<int> getAllNodeIds() const;
 
-    // Every currently blocked edge, each listed once (from < to).
-    std::vector<std::pair<int, int>> getBlockedEdges() const;
+    void clear();
 
 private:
-    struct StoredEdge
-    {
-        int to;
-        double weight;
-        bool blocked = false;
-    };
-
-    std::unordered_map<int, NodePos> positions_;
-    std::unordered_map<int, std::vector<StoredEdge>> adjacency_;
+    std::unordered_map<int, NodePos> positions;
+    std::unordered_map<int, std::vector<Edge>> adjacency;
 };

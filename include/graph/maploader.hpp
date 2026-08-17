@@ -2,9 +2,8 @@
 #include <string>
 #include "graph/graph.hpp"
 
+// Reads intersections.txt and roads.txt, and fills up a Graph with them.
 class MapLoader {
 public:
-    // Loads nodes from intersectionsPath and edges from roadsPath into the given graph.
-    // Returns true on success, false if either file couldn't be opened.
-    static bool load(Graph& graph, const std::string& intersectionsPath, const std::string& roadsPath);
+    static bool load(Graph& graph, const std::string& nodesPath, const std::string& roadsPath);
 };
