@@ -1,0 +1,3 @@
+# id nodeId capacity
+1 1 3
+2 5 2
