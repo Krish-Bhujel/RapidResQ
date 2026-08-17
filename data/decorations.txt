@@ -5,11 +5,29 @@
 # size   -> OPTIONAL 4th column. Omit it (or use 0) to use that type's default size.
 #           Include a number to override the size for just this one decoration.
 #
-# Examples (uncomment / edit once you've registered the matching types in main.cpp):
+ building 7.4 9.9 200
+ building 2.7 6.6 200
+
+ fountain1 5 4.9 135
+
+ Hotel 5 9.9 200
+
+ shop 7.2 2.7 150
+
+ small_shop 7.4 5.8 100
+
+ school 10.6 9.8 250
+
+ museum 10.1 3 175
+
+ factory 0 3 150
+
+ lake 5 5 150
+
+ hospital1 -0.5 9.7 250
  tree 3 2
  tree 3.5 2.2
  house 0.5 4
- small_house 1.2 4.3
  building 6 1
  building 6 1.6 70
  fountain 5 5 90

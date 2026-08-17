@@ -116,9 +116,21 @@ int main()
 
     renderer.loadDecorationIcon("tree", "../assets/tree.png", 30.f);
     renderer.loadDecorationIcon("house", "../assets/house.png", 34.f);
-    renderer.loadDecorationIcon("small_house", "../assets/small_house.png", 24.f);
     renderer.loadDecorationIcon("building", "../assets/building.png", 60.f);
     renderer.loadDecorationIcon("fountain", "../assets/fountain.png", 90.f);
+
+    renderer.loadDecorationIcon("fountain1", "../assets/fountain_1.png", 90.f);
+    renderer.loadDecorationIcon("Palm_trees", "../assets/Palm_trees.png", 20.f);
+    renderer.loadDecorationIcon("cherry", "../assets/Cherry_blossom.png", 70.f);
+    renderer.loadDecorationIcon("building", "../assets/building.png", 70.f);
+    renderer.loadDecorationIcon("Hotel", "../assets/Hotel.png", 70.f);
+    renderer.loadDecorationIcon("shop", "../assets/shop.png", 70.f);
+    renderer.loadDecorationIcon("small_shop", "../assets/small_shop.png", 70.f);
+    renderer.loadDecorationIcon("school", "../assets/school.png", 70.f);
+    renderer.loadDecorationIcon("museum", "../assets/museum.png", 70.f);
+    renderer.loadDecorationIcon("factory", "../assets/factory.png", 70.f);  
+    renderer.loadDecorationIcon("lake", "../assets/lake.png", 90.f);
+    renderer.loadDecorationIcon("hospital1", "../assets/hospital_1.png", 70.f);
 
     std::vector<DecorationEntry> decorations;
     if (!DecorationLoader::load("../data/decorations.txt", decorations))
@@ -324,7 +336,6 @@ int main()
 
         renderer.drawDecorations(window, transform);
         renderer.drawMap(window, city, transform);
-        renderer.drawHospitals(window, hospitals, city, transform);
 
         // ---- Path overlays (drawn before ambulance icons, on top of roads) ----
         std::vector<Simulation::AmbulanceRenderState> ambStates(ambulances.size());
